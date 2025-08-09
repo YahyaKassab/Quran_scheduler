@@ -29,24 +29,74 @@ const getMemorizedPagesByStatus = async (userId) => {
 };
 
 // Helper function to get next pages for new memorization
-const getNextPagesForMemorization = async (userId, count) => {
+const getNextPagesForMemorization = async (userId, count, direction = 'forward') => {
   const statuses = await MemorizationStatus.find({ userId });
-  const memorizedPages = new Set();
+  const memorizedSurahs = new Set();
+  const partiallyMemorizedSurahs = new Set();
   
+  // Track which surahs are completely memorized or partially memorized
   statuses.forEach(status => {
     if (status.status !== 'not_memorized') {
-      memorizedPages.add(`${status.surahNumber}-${status.pageNumber}`);
+      partiallyMemorizedSurahs.add(status.surahNumber);
     }
   });
   
-  const surahs = await Surah.find().sort({ number: 1 });
+  // Check which surahs are completely memorized
+  const surahs = await Surah.find().sort({ number: direction === 'forward' ? 1 : -1 });
+  
+  for (const surah of surahs) {
+    const surahStatuses = statuses.filter(s => s.surahNumber === surah.number);
+    const totalPages = surah.endPage - surah.startPage + 1;
+    const memorizedPages = surahStatuses.filter(s => s.status !== 'not_memorized').length;
+    
+    if (memorizedPages === totalPages) {
+      memorizedSurahs.add(surah.number);
+    }
+  }
+  
   const nextPages = [];
   
-  // Find the first unmemorized pages
+  // Find next unmemorized surahs and start from their beginning
   for (const surah of surahs) {
-    for (let page = surah.startPage; page <= surah.endPage && nextPages.length < count * 10; page++) {
-      const pageKey = `${surah.number}-${page}`;
-      if (!memorizedPages.has(pageKey)) {
+    if (nextPages.length >= count) break;
+    
+    // Skip completely memorized surahs
+    if (memorizedSurahs.has(surah.number)) continue;
+    
+    // For partially memorized surahs, find next unmemorized pages
+    if (partiallyMemorizedSurahs.has(surah.number)) {
+      const surahStatuses = statuses.filter(s => s.surahNumber === surah.number);
+      const memorizedPageNumbers = new Set(
+        surahStatuses
+          .filter(s => s.status !== 'not_memorized')
+          .map(s => s.pageNumber)
+      );
+      
+      // Add unmemorized pages from this surah
+      const pages = direction === 'forward' 
+        ? Array.from({length: surah.endPage - surah.startPage + 1}, (_, i) => surah.startPage + i)
+        : Array.from({length: surah.endPage - surah.startPage + 1}, (_, i) => surah.endPage - i);
+        
+      for (const page of pages) {
+        if (nextPages.length >= count) break;
+        if (!memorizedPageNumbers.has(page)) {
+          nextPages.push({
+            surahNumber: surah.number,
+            pageNumber: page,
+            surahName: surah.nameEnglish
+          });
+        }
+      }
+    } else {
+      // For completely unmemorized surahs, start from the beginning (or end if reverse)
+      const startPage = direction === 'forward' ? surah.startPage : surah.endPage;
+      const endPage = direction === 'forward' ? surah.endPage : surah.startPage;
+      const step = direction === 'forward' ? 1 : -1;
+      
+      for (let page = startPage; 
+           direction === 'forward' ? page <= endPage : page >= endPage; 
+           page += step) {
+        if (nextPages.length >= count) break;
         nextPages.push({
           surahNumber: surah.number,
           pageNumber: page,
@@ -62,7 +112,7 @@ const getNextPagesForMemorization = async (userId, count) => {
 // Main schedule generation function
 const generateSchedule = async (req, res) => {
   try {
-    const { name, startDate, totalDays, dailyNewPages } = req.body;
+    const { name, startDate, totalDays, dailyNewPages, direction = 'forward' } = req.body;
     const userId = req.body.userId || 'default_user';
     
     if (!name || !startDate || !totalDays || !dailyNewPages) {
@@ -133,7 +183,7 @@ const generateSchedule = async (req, res) => {
       
       // Add new material (10-20%)
       if (dailyNewPages > 0) {
-        const newPages = await getNextPagesForMemorization(userId, dailyNewPages);
+        const newPages = await getNextPagesForMemorization(userId, dailyNewPages, direction);
         const startIndex = newPagesConsumed;
         const endIndex = Math.min(startIndex + dailyNewPages, newPages.length);
         
@@ -197,6 +247,7 @@ const generateSchedule = async (req, res) => {
       endDate: end,
       dailyNewPages,
       totalDays,
+      direction,
       dailySchedule,
       userId
     });
@@ -212,6 +263,7 @@ const generateSchedule = async (req, res) => {
         endDate: schedule.endDate,
         totalDays: schedule.totalDays,
         dailyNewPages: schedule.dailyNewPages,
+        direction: schedule.direction,
         dailySchedule: schedule.dailySchedule
       }
     });

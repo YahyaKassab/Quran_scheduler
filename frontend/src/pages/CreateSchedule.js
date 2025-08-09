@@ -8,7 +8,8 @@ const CreateSchedule = () => {
     name: '',
     startDate: '',
     totalDays: 30,
-    dailyNewPages: 1
+    dailyNewPages: 1,
+    direction: 'forward'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -128,6 +129,22 @@ const CreateSchedule = () => {
                   />
                   <small style={{ color: '#6c757d' }}>
                     How many new pages to memorize each day?
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Direction of New Memorization</label>
+                  <select
+                    name="direction"
+                    value={formData.direction}
+                    onChange={handleChange}
+                    className="form-control"
+                  >
+                    <option value="forward">البقرة إلى الناس (Baqarah to Nas)</option>
+                    <option value="reverse">الناس إلى البقرة (Nas to Baqarah)</option>
+                  </select>
+                  <small style={{ color: '#6c757d' }}>
+                    Choose the direction for new memorization material
                   </small>
                 </div>
 

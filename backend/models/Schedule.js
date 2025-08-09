@@ -64,6 +64,11 @@ const ScheduleSchema = new mongoose.Schema({
     required: true,
     min: 1
   },
+  direction: {
+    type: String,
+    enum: ['forward', 'reverse'],
+    default: 'forward'
+  },
   dailySchedule: [DailyAssignmentSchema],
   userId: {
     type: String,
