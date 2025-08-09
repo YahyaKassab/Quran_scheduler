@@ -6,11 +6,15 @@ const {
   getScheduleById,
   updateAssignmentCompletion,
   deleteSchedule,
-  getTodaysAssignments
+  getTodaysAssignments,
+  testAlKahf
 } = require('../controllers/scheduleController');
 
 // Generate new schedule
 router.post('/generate', generateSchedule);
+
+// Test Al-Kahf generation
+router.get('/test-alkahf', testAlKahf);
 
 // Get all schedules
 router.get('/', getAllSchedules);
