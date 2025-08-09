@@ -1,14 +1,17 @@
 const Surah = require('../models/Surah');
 const MemorizationStatus = require('../models/MemorizationStatus');
-const surahs = require('../data/surahs');
+const path = require('path');
+const loadSurahsFromCSV = require('../data/loadSurahsFromCSV');
 
-// Initialize database with surah data
+// Initialize database with surah data from CSV
 const initializeSurahs = async (req, res) => {
   try {
     const count = await Surah.countDocuments();
     if (count === 0) {
+      const csvPath = path.join(__dirname, '../data/../Quran_Version2.csv');
+      const surahs = await loadSurahsFromCSV(csvPath);
       await Surah.insertMany(surahs);
-      console.log('Surahs initialized in database');
+      console.log('Surahs initialized in database from CSV');
     }
     res.json({ message: 'Surahs initialized successfully', count: await Surah.countDocuments() });
   } catch (error) {
@@ -33,11 +36,11 @@ const getSurahByNumber = async (req, res) => {
   try {
     const { number } = req.params;
     const surah = await Surah.findOne({ number: parseInt(number) });
-    
+
     if (!surah) {
       return res.status(404).json({ message: 'Surah not found' });
     }
-    
+
     res.json(surah);
   } catch (error) {
     console.error('Error fetching surah:', error);
@@ -49,17 +52,20 @@ const getSurahByNumber = async (req, res) => {
 const getMemorizationStatus = async (req, res) => {
   try {
     const userId = req.query.userId || 'default_user';
-    const statuses = await MemorizationStatus.find({ userId }).sort({ surahNumber: 1, pageNumber: 1 });
-    
+    const statuses = await MemorizationStatus.find({ userId }).sort({
+      surahNumber: 1,
+      pageNumber: 1,
+    });
+
     // Group by surah for easier frontend consumption
     const statusBySurah = {};
-    statuses.forEach(status => {
+    statuses.forEach((status) => {
       if (!statusBySurah[status.surahNumber]) {
         statusBySurah[status.surahNumber] = {};
       }
       statusBySurah[status.surahNumber][status.pageNumber] = status.status;
     });
-    
+
     res.json(statusBySurah);
   } catch (error) {
     console.error('Error fetching memorization status:', error);
@@ -72,21 +78,25 @@ const updateMemorizationStatus = async (req, res) => {
   try {
     const { surahNumber, pageNumber, status } = req.body;
     const userId = req.body.userId || 'default_user';
-    
+
     if (!surahNumber || !pageNumber || !status) {
-      return res.status(400).json({ message: 'Missing required fields: surahNumber, pageNumber, status' });
+      return res
+        .status(400)
+        .json({ message: 'Missing required fields: surahNumber, pageNumber, status' });
     }
-    
+
     if (!['perfect', 'medium', 'bad', 'not_memorized'].includes(status)) {
-      return res.status(400).json({ message: 'Invalid status. Must be: perfect, medium, bad, or not_memorized' });
+      return res
+        .status(400)
+        .json({ message: 'Invalid status. Must be: perfect, medium, bad, or not_memorized' });
     }
-    
+
     const memStatus = await MemorizationStatus.findOneAndUpdate(
       { userId, surahNumber, pageNumber },
       { status, lastUpdated: new Date() },
       { upsert: true, new: true }
     );
-    
+
     res.json(memStatus);
   } catch (error) {
     console.error('Error updating memorization status:', error);
@@ -99,33 +109,35 @@ const batchUpdateMemorizationStatus = async (req, res) => {
   try {
     const { updates } = req.body;
     const userId = req.body.userId || 'default_user';
-    
+
     if (!Array.isArray(updates)) {
       return res.status(400).json({ message: 'Updates must be an array' });
     }
-    
+
     const results = [];
-    
+
     for (const update of updates) {
       const { surahNumber, pageNumber, status } = update;
-      
+
       if (!surahNumber || !pageNumber || !status) {
         continue; // Skip invalid updates
       }
-      
+
       const memStatus = await MemorizationStatus.findOneAndUpdate(
         { userId, surahNumber, pageNumber },
         { status, lastUpdated: new Date() },
         { upsert: true, new: true }
       );
-      
+
       results.push(memStatus);
     }
-    
+
     res.json({ message: `Updated ${results.length} memorization statuses`, results });
   } catch (error) {
     console.error('Error batch updating memorization status:', error);
-    res.status(500).json({ message: 'Error batch updating memorization status', error: error.message });
+    res
+      .status(500)
+      .json({ message: 'Error batch updating memorization status', error: error.message });
   }
 };
 
@@ -134,31 +146,35 @@ const getSurahPages = async (req, res) => {
   try {
     const { number } = req.params;
     const userId = req.query.userId || 'default_user';
-    
+
     const surah = await Surah.findOne({ number: parseInt(number) });
     if (!surah) {
       return res.status(404).json({ message: 'Surah not found' });
     }
-    
+
     const pages = [];
     for (let page = surah.startPage; page <= surah.endPage; page++) {
-      const status = await MemorizationStatus.findOne({ userId, surahNumber: surah.number, pageNumber: page });
+      const status = await MemorizationStatus.findOne({
+        userId,
+        surahNumber: surah.number,
+        pageNumber: page,
+      });
       pages.push({
         pageNumber: page,
         status: status ? status.status : 'not_memorized',
-        lastUpdated: status ? status.lastUpdated : null
+        lastUpdated: status ? status.lastUpdated : null,
       });
     }
-    
+
     res.json({
       surah: {
         number: surah.number,
         nameArabic: surah.nameArabic,
         nameEnglish: surah.nameEnglish,
         nameTransliteration: surah.nameTransliteration,
-        totalPages: surah.totalPages
+        totalPages: surah.totalPages,
       },
-      pages
+      pages,
     });
   } catch (error) {
     console.error('Error fetching surah pages:', error);
@@ -173,5 +189,5 @@ module.exports = {
   getMemorizationStatus,
   updateMemorizationStatus,
   batchUpdateMemorizationStatus,
-  getSurahPages
+  getSurahPages,
 };
