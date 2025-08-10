@@ -71,6 +71,7 @@ const ScheduleDetails = ({ schedule, onSetDone }) => {
     // Convert to array and format page ranges
     return Object.values(grouped).map((group) => {
       if (group.pages.length > 0) {
+        // Sort pages numerically within each group to create proper ranges
         group.pages.sort((a, b) => a - b);
         const ranges = [];
         let start = group.pages[0];

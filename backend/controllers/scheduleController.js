@@ -28,16 +28,82 @@ const getMemorizedPagesByStatus = async (userId) => {
     });
   });
 
-  // Sort each category by recency (most recently updated first)
+  // Sort each category by page number order (not recency) to maintain logical sequence
   Object.keys(categorized).forEach(status => {
     categorized[status].sort((a, b) => {
-      const dateA = a.lastUpdated || a.createdAt;
-      const dateB = b.lastUpdated || b.createdAt;
-      return new Date(dateB) - new Date(dateA); // Descending order (newest first)
+      // Primary sort: by surah number
+      if (a.surahNumber !== b.surahNumber) {
+        return a.surahNumber - b.surahNumber;
+      }
+      // Secondary sort: by page number within the same surah
+      return a.pageNumber - b.pageNumber;
     });
   });
 
   return categorized;
+};
+
+// Helper function to calculate optimal revision distribution
+const calculateRevisionDistribution = (memorizedPages, targetCycleDays = 10) => {
+  const perfectCount = memorizedPages.perfect.length;
+  const mediumCount = memorizedPages.medium.length;
+  const badCount = memorizedPages.bad.length;
+  const totalMemorized = perfectCount + mediumCount + badCount;
+
+  if (totalMemorized === 0) {
+    return { 
+      dailyRevision: 0, 
+      actualCycleDays: 0, 
+      distribution: [],
+      stats: {
+        total: 0,
+        perfect: 0,
+        medium: 0,
+        bad: 0,
+        qualityRatio: 0
+      }
+    };
+  }
+
+  // Calculate quality ratio - if most pages are not perfect, extend cycle
+  const qualityRatio = perfectCount / totalMemorized;
+  let actualCycleDays = targetCycleDays;
+  
+  // If less than 60% are perfect, extend cycle proportionally
+  if (qualityRatio < 0.6) {
+    const extensionFactor = 1 + (0.6 - qualityRatio); // Max 1.6x extension
+    actualCycleDays = Math.min(Math.ceil(targetCycleDays * extensionFactor), 15); // Cap at 15 days
+  }
+
+  const dailyRevision = Math.ceil(totalMemorized / actualCycleDays);
+
+  // Create a distribution that cycles through all memorized pages
+  const allMemorizedPages = [
+    ...memorizedPages.perfect,  // Perfect quality first (highest priority)
+    ...memorizedPages.medium,   // Medium quality second
+    ...memorizedPages.bad       // Worst quality last (lowest priority but still included)
+  ];
+
+  // Distribute pages across days
+  const distribution = [];
+  for (let day = 0; day < actualCycleDays; day++) {
+    const startIdx = day * dailyRevision;
+    const endIdx = Math.min(startIdx + dailyRevision, allMemorizedPages.length);
+    distribution.push(allMemorizedPages.slice(startIdx, endIdx));
+  }
+
+  return { 
+    dailyRevision, 
+    actualCycleDays, 
+    distribution,
+    stats: {
+      total: totalMemorized,
+      perfect: perfectCount,
+      medium: mediumCount,
+      bad: badCount,
+      qualityRatio: Math.round(qualityRatio * 100)
+    }
+  };
 };
 
 // Helper function to get next pages for new memorization with dynamic state tracking
@@ -129,6 +195,32 @@ const generateSchedule = async (req, res) => {
       }
     });
 
+    // Create a sequential list of all unmemorized pages in correct order
+    const sortedSurahs = [...staticSurahs].sort((a, b) => 
+      newDirection === 'forward' ? a.number - b.number : b.number - a.number
+    );
+    
+    const unmemorizedPagesList = [];
+    for (const surah of sortedSurahs) {
+      // ALWAYS iterate pages in ascending order within each surah
+      for (let page = surah.startPage; page <= surah.endPage; page++) {
+        const pageKey = `${surah.number}-${page}`;
+        if (!memorizedPagesSet.has(pageKey)) {
+          unmemorizedPagesList.push({
+            surahNumber: surah.number,
+            pageNumber: page,
+            surahName: surah.nameEnglish,
+            surahNameArabic: surah.nameArabic
+          });
+        }
+      }
+    }
+
+    // Calculate comprehensive revision distribution
+    const revisionPlan = calculateRevisionDistribution(memorizedPages, 10);
+    
+    // Track current position in the unmemorized pages list
+    let currentPageIndex = 0;
     const dailySchedule = [];
 
     for (let day = 0; day < totalDays; day++) {
@@ -138,84 +230,67 @@ const generateSchedule = async (req, res) => {
 
       const assignments = [];
 
-      // Dynamic daily allocations
-      const currentPerfectCount = dynamicMemorizedPages.perfect.length;
-      const currentMediumCount = dynamicMemorizedPages.medium.length;
-      const dailyPerfect = Math.ceil(currentPerfectCount / 10) || 0;
-      const dailyMedium = Math.ceil(currentMediumCount / 10) || 0;
-
-      // Perfect revision
-      for (let i = 0; i < Math.min(dailyPerfect, dynamicMemorizedPages.perfect.length); i++) {
-        const page = dynamicMemorizedPages.perfect[i];
-        const surahObj = surahs.find((s) => s.number === page.surahNumber);
-        const daysSinceMemorized = Math.floor((new Date() - new Date(page.lastUpdated || page.createdAt)) / (1000 * 60 * 60 * 24));
-        assignments.push({
-          type: 'revision',
-          surahNumber: page.surahNumber,
-          surahNameArabic: surahObj ? surahObj.nameArabic : '',
-          surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
-          pageNumber: page.pageNumber,
-          status: 'perfect',
-          description: `Perfect revision (${daysSinceMemorized} days ago)`,
-          lastUpdated: page.lastUpdated,
-          daysSinceMemorized: daysSinceMemorized
-        });
-      }
-      dynamicMemorizedPages.perfect = dynamicMemorizedPages.perfect.slice(Math.min(dailyPerfect, dynamicMemorizedPages.perfect.length));
-
-      // Medium revision
-      for (let i = 0; i < Math.min(dailyMedium, dynamicMemorizedPages.medium.length); i++) {
-        const page = dynamicMemorizedPages.medium[i];
-        const surahObj = surahs.find((s) => s.number === page.surahNumber);
-        const daysSinceMemorized = Math.floor((new Date() - new Date(page.lastUpdated || page.createdAt)) / (1000 * 60 * 60 * 24));
-        assignments.push({
-          type: 'revision',
-          surahNumber: page.surahNumber,
-          surahNameArabic: surahObj ? surahObj.nameArabic : '',
-          surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
-          pageNumber: page.pageNumber,
-          status: 'medium',
-          description: `Medium revision (${daysSinceMemorized} days ago)`,
-          lastUpdated: page.lastUpdated,
-          daysSinceMemorized: daysSinceMemorized
-        });
-      }
-      dynamicMemorizedPages.medium = dynamicMemorizedPages.medium.slice(Math.min(dailyMedium, dynamicMemorizedPages.medium.length));
-
-      // New material (skip Fridays)
-      if (dailyNewPages > 0 && dayOfWeek !== 'Friday') {
-        const newPagesForToday = await getNextPagesForMemorization(userId, dailyNewPages, newDirection, memorizedPagesSet);
+      // COMPREHENSIVE REVISION: All memorized pages on consistent schedule
+      if (revisionPlan.distribution.length > 0) {
+        const cycleDay = day % revisionPlan.actualCycleDays;
+        const todaysRevisionPages = revisionPlan.distribution[cycleDay] || [];
         
-        newPagesForToday.forEach(pageData => {
+        todaysRevisionPages.forEach(page => {
+          const surahObj = surahs.find((s) => s.number === page.surahNumber);
+          const daysSinceMemorized = Math.floor((new Date() - new Date(page.lastUpdated || page.createdAt)) / (1000 * 60 * 60 * 24));
+          
+          // Determine the status from the original categorization
+          let status = 'medium'; // default
+          if (memorizedPages.perfect.find(p => p.surahNumber === page.surahNumber && p.pageNumber === page.pageNumber)) {
+            status = 'perfect';
+          } else if (memorizedPages.bad.find(p => p.surahNumber === page.surahNumber && p.pageNumber === page.pageNumber)) {
+            status = 'bad';
+          }
+          
+          assignments.push({
+            type: 'revision',
+            surahNumber: page.surahNumber,
+            surahNameArabic: surahObj ? surahObj.nameArabic : '',
+            surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
+            pageNumber: page.pageNumber,
+            status: status,
+            description: `${status === 'perfect' ? 'Perfect' : status === 'medium' ? 'Medium' : 'Weak'} revision (${daysSinceMemorized} days ago)`,
+            lastUpdated: page.lastUpdated,
+            daysSinceMemorized: daysSinceMemorized,
+            cycleInfo: `Day ${cycleDay + 1}/${revisionPlan.actualCycleDays} (${revisionPlan.stats.qualityRatio}% perfect)`
+          });
+        });
+      }
+
+      // New material (skip Fridays) - use sequential page assignment
+      if (dailyNewPages > 0 && dayOfWeek !== 'Friday' && currentPageIndex < unmemorizedPagesList.length) {
+        for (let i = 0; i < dailyNewPages && currentPageIndex < unmemorizedPagesList.length; i++) {
+          const pageData = unmemorizedPagesList[currentPageIndex];
           const surahObj = surahs.find((s) => s.number === pageData.surahNumber);
-          const description = pageData.isNewContext 
-            ? `Context - ${pageData.surahName}` 
-            : `New memorization - ${pageData.surahName}`;
           
           assignments.push({
             type: 'new',
             surahNumber: pageData.surahNumber,
-            surahNameArabic: surahObj ? surahObj.nameArabic : '',
-            surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
+            surahNameArabic: pageData.surahNameArabic,
+            surahNameEnglish: pageData.surahName,
             pageNumber: pageData.pageNumber,
-            status: pageData.isNewContext ? 'perfect' : 'not_memorized',
-            description: description,
-            isContext: pageData.isNewContext || false,
+            status: 'not_memorized',
+            description: `New memorization - ${pageData.surahName}`,
+            isContext: false,
           });
           
           // DYNAMIC UPDATE: New pages become medium for tomorrow
-          if (!pageData.isNewContext) {
-            const todayDate = new Date(currentDate);
-            dynamicMemorizedPages.medium.push({  // Changed from unshift to push to maintain order
-              surahNumber: pageData.surahNumber,
-              pageNumber: pageData.pageNumber,
-              lastUpdated: todayDate,
-              createdAt: todayDate
-            });
-            
-            memorizedPagesSet.add(`${pageData.surahNumber}-${pageData.pageNumber}`);
-          }
-        });
+          const todayDate = new Date(currentDate);
+          dynamicMemorizedPages.medium.push({
+            surahNumber: pageData.surahNumber,
+            pageNumber: pageData.pageNumber,
+            lastUpdated: todayDate,
+            createdAt: todayDate
+          });
+          
+          memorizedPagesSet.add(`${pageData.surahNumber}-${pageData.pageNumber}`);
+          currentPageIndex++; // Move to next page in sequence
+        }
       }
 
       // Friday Al-Kahf
@@ -258,8 +333,22 @@ const generateSchedule = async (req, res) => {
     await schedule.save();
 
     res.status(201).json({
-      message: 'Schedule generated successfully with dynamic memorization tracking!',
+      message: 'Schedule generated successfully with comprehensive revision system!',
       schedule: schedule,
+      revisionPlan: {
+        dailyRevisionPages: revisionPlan.dailyRevision,
+        revisionCycleDays: revisionPlan.actualCycleDays,
+        totalMemorized: revisionPlan.stats.total,
+        qualityBreakdown: {
+          perfect: revisionPlan.stats.perfect,
+          medium: revisionPlan.stats.medium,
+          bad: revisionPlan.stats.bad,
+          qualityRatio: `${revisionPlan.stats.qualityRatio}%`
+        },
+        systemInfo: revisionPlan.stats.qualityRatio < 60 
+          ? `Extended cycle to ${revisionPlan.actualCycleDays} days due to ${100 - revisionPlan.stats.qualityRatio}% non-perfect pages`
+          : `Standard 10-day cycle (${revisionPlan.stats.qualityRatio}% perfect quality)`
+      }
     });
 
   } catch (error) {
