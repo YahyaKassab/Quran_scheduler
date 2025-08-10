@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import SurahList from './pages/SurahList';
 import Schedules from './pages/Schedules';
 import CreateSchedule from './pages/CreateSchedule';
+import NewMaterial from './pages/NewMaterial';
 
 // Import API
 import { surahAPI } from './services/api';
@@ -84,6 +85,7 @@ function App() {
             <Route path="/surahs" element={<SurahList />} />
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/schedules/create" element={<CreateSchedule />} />
+            <Route path="/new" element={<NewMaterial />} />
           </Routes>
         </main>
       </div>

@@ -163,6 +163,11 @@ const Schedules = () => {
                     {schedule.dailyNewPages} pages
                   </div>
                   <div>
+                    <strong>Direction:</strong>
+                    <br />
+                    {schedule.newDirection === 'reverse' ? 'An-Nas → Al-Baqarah' : 'Al-Baqarah → An-Nas'}
+                  </div>
+                  <div>
                     <strong>Total Days:</strong>
                     <br />
                     {schedule.totalDays} days

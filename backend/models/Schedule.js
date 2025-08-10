@@ -69,6 +69,11 @@ const ScheduleSchema = new mongoose.Schema({
     type: String,
     default: 'default_user'
   },
+  newDirection: {
+    type: String,
+    enum: ['forward', 'reverse'], // forward: Al-Baqarah -> An-Nas, reverse: An-Nas -> Al-Baqarah
+    default: 'forward'
+  },
   status: {
     type: String,
     enum: ['active', 'completed', 'paused'],

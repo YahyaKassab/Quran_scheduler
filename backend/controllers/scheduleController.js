@@ -9,7 +9,7 @@ const getDayOfWeek = (date) => {
   return days[date.getDay()];
 };
 
-// Helper function to get all memorized pages by status
+// Helper function to get all memorized pages by status (sorted by recency - most recent first)
 const getMemorizedPagesByStatus = async (userId) => {
   const statuses = await MemorizationStatus.find({ userId });
   const categorized = {
@@ -23,54 +23,75 @@ const getMemorizedPagesByStatus = async (userId) => {
     categorized[status.status].push({
       surahNumber: status.surahNumber,
       pageNumber: status.pageNumber,
+      lastUpdated: status.lastUpdated,
+      createdAt: status.createdAt
+    });
+  });
+
+  // Sort each category by recency (most recently updated first)
+  Object.keys(categorized).forEach(status => {
+    categorized[status].sort((a, b) => {
+      const dateA = a.lastUpdated || a.createdAt;
+      const dateB = b.lastUpdated || b.createdAt;
+      return new Date(dateB) - new Date(dateA); // Descending order (newest first)
     });
   });
 
   return categorized;
 };
 
-// Helper function to get next pages for new memorization
-const getNextPagesForMemorization = async (userId, count) => {
-  const statuses = await MemorizationStatus.find({ userId });
-  const memorizedPages = new Set();
+// Helper function to get next pages for new memorization with dynamic state tracking
+const getNextPagesForMemorization = async (userId, pagesNeededToday, newDirection = 'forward', memorizedPagesSet = null) => {
+  if (!memorizedPagesSet) {
+    const statuses = await MemorizationStatus.find({ userId });
+    memorizedPagesSet = new Set();
+    statuses.forEach((status) => {
+      if (status.status !== 'not_memorized') {
+        memorizedPagesSet.add(`${status.surahNumber}-${status.pageNumber}`);
+      }
+    });
+  }
 
-  statuses.forEach((status) => {
-    if (status.status !== 'not_memorized') {
-      memorizedPages.add(`${status.surahNumber}-${status.pageNumber}`);
-    }
-  });
+  // Sort surahs by direction (forward: 1,2,3... reverse: 114,113,112...)
+  const sortedSurahs = [...staticSurahs].sort((a, b) => 
+    newDirection === 'forward' ? a.number - b.number : b.number - a.number
+  );
+  
+  const pagesForToday = [];
+  let pagesCollected = 0;
 
-  const surahs = await Surah.find().sort({ number: 1 });
-  const nextPages = [];
-
-  for (const surah of surahs) {
-    for (
-      let page = surah.startPage;
-      page <= surah.endPage && nextPages.length < count * 10;
-      page++
-    ) {
+  // Find the first unmemorized page across all surahs
+  for (const surah of sortedSurahs) {
+    if (pagesCollected >= pagesNeededToday) break;
+    
+    // ALWAYS iterate pages in ascending order within each surah (basic math!)
+    for (let page = surah.startPage; page <= surah.endPage; page++) {
+      if (pagesCollected >= pagesNeededToday) break;
+      
       const pageKey = `${surah.number}-${page}`;
-      if (!memorizedPages.has(pageKey)) {
-        nextPages.push({
+      if (!memorizedPagesSet.has(pageKey)) {
+        pagesForToday.push({
           surahNumber: surah.number,
           pageNumber: page,
           surahName: surah.nameEnglish,
+          surahNameArabic: surah.nameArabic,
+          isNewContext: false,
+          isActuallyNew: true,
+          dayNumber: 1,
+          surahTotalPages: surah.totalPages
         });
+        pagesCollected++;
       }
     }
   }
 
-  return nextPages.slice(0, count);
+  return pagesForToday;
 };
 
-// Main schedule generation function
+// Main schedule generation function with dynamic memorization tracking
 const generateSchedule = async (req, res) => {
   try {
-    console.log('Starting schedule generation...');
-    console.log('Static surahs loaded:', staticSurahs.length, 'surahs');
-    console.log('Al-Kahf from static data:', staticSurahs.find(s => s.number === 18));
-    
-    const { name, startDate, totalDays, dailyNewPages } = req.body;
+    const { name, startDate, totalDays, dailyNewPages, newDirection = 'forward' } = req.body;
     const userId = req.body.userId || 'default_user';
 
     if (!name || !startDate || !totalDays || !dailyNewPages) {
@@ -79,23 +100,36 @@ const generateSchedule = async (req, res) => {
       });
     }
 
+    if (!['forward', 'reverse'].includes(newDirection)) {
+      return res.status(400).json({ message: 'Invalid newDirection value' });
+    }
+
     const start = new Date(startDate);
     const end = new Date(start);
     end.setDate(start.getDate() + totalDays - 1);
-
+    
+    // Get surahs in default order for revision (always forward)
     const surahs = await Surah.find().sort({ number: 1 });
     const memorizedPages = await getMemorizedPagesByStatus(userId);
 
-    const totalPerfect = memorizedPages.perfect.length;
-    const totalMedium = memorizedPages.medium.length;
+    // Create dynamic memorization tracking
+    let dynamicMemorizedPages = {
+      perfect: [...memorizedPages.perfect],
+      medium: [...memorizedPages.medium],
+      bad: [...memorizedPages.bad],
+      not_memorized: [...memorizedPages.not_memorized]
+    };
 
-    const dailyPerfect = Math.ceil(totalPerfect / 10);
-    const dailyMedium = Math.ceil(totalMedium / 10);
+    // Build initial memorized pages set
+    const initialStatuses = await MemorizationStatus.find({ userId });
+    let memorizedPagesSet = new Set();
+    initialStatuses.forEach(status => {
+      if (status.status !== 'not_memorized') {
+        memorizedPagesSet.add(`${status.surahNumber}-${status.pageNumber}`);
+      }
+    });
 
     const dailySchedule = [];
-    let perfectIndex = 0;
-    let mediumIndex = 0;
-    let newPagesConsumed = 0;
 
     for (let day = 0; day < totalDays; day++) {
       const currentDate = new Date(start);
@@ -104,128 +138,136 @@ const generateSchedule = async (req, res) => {
 
       const assignments = [];
 
+      // Dynamic daily allocations
+      const currentPerfectCount = dynamicMemorizedPages.perfect.length;
+      const currentMediumCount = dynamicMemorizedPages.medium.length;
+      const dailyPerfect = Math.ceil(currentPerfectCount / 10) || 0;
+      const dailyMedium = Math.ceil(currentMediumCount / 10) || 0;
+
       // Perfect revision
-      const perfectToAdd = Math.min(dailyPerfect, totalPerfect - perfectIndex);
-      for (let i = 0; i < perfectToAdd; i++) {
-        if (perfectIndex < memorizedPages.perfect.length) {
-          const page = memorizedPages.perfect[perfectIndex];
-          const surahObj = surahs.find((s) => s.number === page.surahNumber);
-          assignments.push({
-            type: 'revision',
-            surahNumber: page.surahNumber,
-            surahNameArabic: surahObj ? surahObj.nameArabic : '',
-            surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
-            pageNumber: page.pageNumber,
-            status: 'perfect',
-            description: 'Perfect revision',
-          });
-          perfectIndex++;
-        }
+      for (let i = 0; i < Math.min(dailyPerfect, dynamicMemorizedPages.perfect.length); i++) {
+        const page = dynamicMemorizedPages.perfect[i];
+        const surahObj = surahs.find((s) => s.number === page.surahNumber);
+        const daysSinceMemorized = Math.floor((new Date() - new Date(page.lastUpdated || page.createdAt)) / (1000 * 60 * 60 * 24));
+        assignments.push({
+          type: 'revision',
+          surahNumber: page.surahNumber,
+          surahNameArabic: surahObj ? surahObj.nameArabic : '',
+          surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
+          pageNumber: page.pageNumber,
+          status: 'perfect',
+          description: `Perfect revision (${daysSinceMemorized} days ago)`,
+          lastUpdated: page.lastUpdated,
+          daysSinceMemorized: daysSinceMemorized
+        });
       }
+      dynamicMemorizedPages.perfect = dynamicMemorizedPages.perfect.slice(Math.min(dailyPerfect, dynamicMemorizedPages.perfect.length));
 
       // Medium revision
-      const mediumToAdd = Math.min(dailyMedium, totalMedium - mediumIndex);
-      for (let i = 0; i < mediumToAdd; i++) {
-        if (mediumIndex < memorizedPages.medium.length) {
-          const page = memorizedPages.medium[mediumIndex];
-          const surahObj = surahs.find((s) => s.number === page.surahNumber);
+      for (let i = 0; i < Math.min(dailyMedium, dynamicMemorizedPages.medium.length); i++) {
+        const page = dynamicMemorizedPages.medium[i];
+        const surahObj = surahs.find((s) => s.number === page.surahNumber);
+        const daysSinceMemorized = Math.floor((new Date() - new Date(page.lastUpdated || page.createdAt)) / (1000 * 60 * 60 * 24));
+        assignments.push({
+          type: 'revision',
+          surahNumber: page.surahNumber,
+          surahNameArabic: surahObj ? surahObj.nameArabic : '',
+          surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
+          pageNumber: page.pageNumber,
+          status: 'medium',
+          description: `Medium revision (${daysSinceMemorized} days ago)`,
+          lastUpdated: page.lastUpdated,
+          daysSinceMemorized: daysSinceMemorized
+        });
+      }
+      dynamicMemorizedPages.medium = dynamicMemorizedPages.medium.slice(Math.min(dailyMedium, dynamicMemorizedPages.medium.length));
+
+      // New material (skip Fridays)
+      if (dailyNewPages > 0 && dayOfWeek !== 'Friday') {
+        const newPagesForToday = await getNextPagesForMemorization(userId, dailyNewPages, newDirection, memorizedPagesSet);
+        
+        newPagesForToday.forEach(pageData => {
+          const surahObj = surahs.find((s) => s.number === pageData.surahNumber);
+          const description = pageData.isNewContext 
+            ? `Context - ${pageData.surahName}` 
+            : `New memorization - ${pageData.surahName}`;
+          
           assignments.push({
-            type: 'revision',
-            surahNumber: page.surahNumber,
+            type: 'new',
+            surahNumber: pageData.surahNumber,
             surahNameArabic: surahObj ? surahObj.nameArabic : '',
             surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
-            pageNumber: page.pageNumber,
-            status: 'medium',
-            description: 'Medium revision',
+            pageNumber: pageData.pageNumber,
+            status: pageData.isNewContext ? 'perfect' : 'not_memorized',
+            description: description,
+            isContext: pageData.isNewContext || false,
           });
-          mediumIndex++;
-        }
-      }
-
-      // New material
-      if (dailyNewPages > 0) {
-        const newPages = await getNextPagesForMemorization(userId, dailyNewPages);
-        const startIndex = newPagesConsumed;
-        const endIndex = Math.min(startIndex + dailyNewPages, newPages.length);
-
-        for (let i = startIndex; i < endIndex; i++) {
-          if (newPages[i]) {
-            const surahObj = surahs.find((s) => s.number === newPages[i].surahNumber);
-            assignments.push({
-              type: 'new',
-              surahNumber: newPages[i].surahNumber,
-              surahNameArabic: surahObj ? surahObj.nameArabic : '',
-              surahNameEnglish: surahObj ? surahObj.nameEnglish : '',
-              pageNumber: newPages[i].pageNumber,
-              status: 'not_memorized',
-              description: `New memorization - ${newPages[i].surahName}`,
+          
+          // DYNAMIC UPDATE: New pages become medium for tomorrow
+          if (!pageData.isNewContext) {
+            const todayDate = new Date(currentDate);
+            dynamicMemorizedPages.medium.push({  // Changed from unshift to push to maintain order
+              surahNumber: pageData.surahNumber,
+              pageNumber: pageData.pageNumber,
+              lastUpdated: todayDate,
+              createdAt: todayDate
             });
+            
+            memorizedPagesSet.add(`${pageData.surahNumber}-${pageData.pageNumber}`);
           }
-        }
-        newPagesConsumed += endIndex - startIndex;
+        });
       }
 
-      // Friday Al-Kahf rule - ALL PAGES
+      // Friday Al-Kahf
       if (dayOfWeek === 'Friday') {
-        console.log('Friday detected! Adding Al-Kahf...');
         const alKahf = staticSurahs.find((s) => s.number === 18);
-        console.log('Al-Kahf data:', alKahf);
-        
         if (alKahf) {
-          console.log(`Adding Al-Kahf pages from ${alKahf.startPage} to ${alKahf.endPage}`);
           for (let page = alKahf.startPage; page <= alKahf.endPage; page++) {
-            const assignment = {
+            assignments.push({
               type: 'special',
               surahNumber: 18,
               surahNameArabic: alKahf.nameArabic,
               surahNameEnglish: alKahf.nameEnglish,
               pageNumber: page,
               status: 'special',
-              description: 'Al-Kahf - Friday Sunnah (Reading)',
-            };
-            console.log('Adding Al-Kahf assignment:', assignment);
-            assignments.push(assignment);
+              description: 'Friday Al-Kahf',
+            });
           }
         }
       }
 
-      if (perfectIndex >= memorizedPages.perfect.length) perfectIndex = 0;
-      if (mediumIndex >= memorizedPages.medium.length) mediumIndex = 0;
-
       dailySchedule.push({
-        date: currentDate,
-        dayOfWeek,
-        assignments,
+        date: currentDate.toISOString().split('T')[0],
+        dayOfWeek: dayOfWeek,
+        assignments: assignments,
       });
     }
 
     const schedule = new Schedule({
       name,
+      userId,
       startDate: start,
       endDate: end,
-      dailyNewPages,
       totalDays,
+      dailyNewPages,
+      newDirection,
       dailySchedule,
-      userId,
+      status: 'active',
     });
 
     await schedule.save();
 
-    res.json({
-      message: 'Schedule generated successfully',
-      schedule: {
-        id: schedule._id,
-        name: schedule.name,
-        startDate: schedule.startDate,
-        endDate: schedule.endDate,
-        totalDays: schedule.totalDays,
-        dailyNewPages: schedule.dailyNewPages,
-        dailySchedule: schedule.dailySchedule,
-      },
+    res.status(201).json({
+      message: 'Schedule generated successfully with dynamic memorization tracking!',
+      schedule: schedule,
     });
+
   } catch (error) {
     console.error('Error generating schedule:', error);
-    res.status(500).json({ message: 'Error generating schedule', error: error.message });
+    res.status(500).json({
+      message: 'Failed to generate schedule',
+      error: error.message,
+    });
   }
 };
 
@@ -236,7 +278,7 @@ const getAllSchedules = async (req, res) => {
     res.json(schedules);
   } catch (error) {
     console.error('Error fetching schedules:', error);
-    res.status(500).json({ message: 'Error fetching schedules', error: error.message });
+    res.status(500).json({ message: 'Failed to fetch schedules', error: error.message });
   }
 };
 
@@ -250,52 +292,30 @@ const getScheduleById = async (req, res) => {
     res.json(schedule);
   } catch (error) {
     console.error('Error fetching schedule:', error);
-    res.status(500).json({ message: 'Error fetching schedule', error: error.message });
+    res.status(500).json({ message: 'Failed to fetch schedule', error: error.message });
   }
 };
 
 const updateAssignmentCompletion = async (req, res) => {
   try {
-    const { scheduleId, dateString, assignmentIndex, completed } = req.body;
+    const { scheduleId, date, assignmentIndex, completed } = req.body;
     const schedule = await Schedule.findById(scheduleId);
     if (!schedule) {
       return res.status(404).json({ message: 'Schedule not found' });
     }
-
-    const daySchedule = schedule.dailySchedule.find(
-      (day) => day.date.toISOString().split('T')[0] === dateString
-    );
-
+    const daySchedule = schedule.dailySchedule.find(day => day.date === date);
     if (!daySchedule) {
       return res.status(404).json({ message: 'Day not found in schedule' });
     }
-
     if (assignmentIndex >= daySchedule.assignments.length) {
       return res.status(404).json({ message: 'Assignment not found' });
     }
-
     daySchedule.assignments[assignmentIndex].completed = completed;
-
-    const completedDays = schedule.dailySchedule.filter((day) =>
-      day.assignments.every((assignment) => assignment.completed)
-    ).length;
-
-    schedule.completedDays = completedDays;
-
-    if (completedDays === schedule.totalDays) {
-      schedule.status = 'completed';
-    }
-
     await schedule.save();
-
-    res.json({
-      message: 'Assignment updated successfully',
-      completedDays: schedule.completedDays,
-      status: schedule.status,
-    });
+    res.json({ message: 'Assignment updated successfully', schedule });
   } catch (error) {
     console.error('Error updating assignment:', error);
-    res.status(500).json({ message: 'Error updating assignment', error: error.message });
+    res.status(500).json({ message: 'Failed to update assignment', error: error.message });
   }
 };
 
@@ -309,84 +329,46 @@ const deleteSchedule = async (req, res) => {
     res.json({ message: 'Schedule deleted successfully' });
   } catch (error) {
     console.error('Error deleting schedule:', error);
-    res.status(500).json({ message: 'Error deleting schedule', error: error.message });
+    res.status(500).json({ message: 'Failed to delete schedule', error: error.message });
   }
 };
 
 const getTodaysAssignments = async (req, res) => {
   try {
     const userId = req.query.userId || 'default_user';
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const activeSchedules = await Schedule.find({
-      userId,
-      status: 'active',
-      startDate: { $lte: today },
-      endDate: { $gte: today },
-    });
-
-    const todaysAssignments = [];
-
-    activeSchedules.forEach((schedule) => {
-      const daySchedule = schedule.dailySchedule.find((day) => {
-        const dayDate = new Date(day.date);
-        dayDate.setHours(0, 0, 0, 0);
-        return dayDate.getTime() === today.getTime();
-      });
-
+    const today = new Date().toISOString().split('T')[0];
+    const schedules = await Schedule.find({ userId, status: 'active' });
+    let todaysAssignments = [];
+    schedules.forEach(schedule => {
+      const daySchedule = schedule.dailySchedule.find(day => day.date === today);
       if (daySchedule) {
-        todaysAssignments.push({
-          scheduleId: schedule._id,
-          scheduleName: schedule.name,
-          date: daySchedule.date,
-          dayOfWeek: daySchedule.dayOfWeek,
-          assignments: daySchedule.assignments,
-        });
+        todaysAssignments = todaysAssignments.concat(
+          daySchedule.assignments.map(assignment => ({
+            ...assignment,
+            scheduleName: schedule.name,
+            scheduleId: schedule._id
+          }))
+        );
       }
     });
-
     res.json(todaysAssignments);
   } catch (error) {
-    console.error("Error fetching today's assignments:", error);
-    res.status(500).json({ message: "Error fetching today's assignments", error: error.message });
+    console.error('Error fetching today\'s assignments:', error);
+    res.status(500).json({ message: 'Failed to fetch today\'s assignments', error: error.message });
   }
 };
 
 const testAlKahf = async (req, res) => {
   try {
-    console.log('Testing Al-Kahf generation...');
-    console.log('Static surahs loaded:', staticSurahs.length);
-    
     const alKahf = staticSurahs.find((s) => s.number === 18);
-    console.log('Al-Kahf data:', alKahf);
-    
-    if (!alKahf) {
-      return res.json({ error: 'Al-Kahf not found in static data' });
-    }
-    
-    const assignments = [];
-    for (let page = alKahf.startPage; page <= alKahf.endPage; page++) {
-      assignments.push({
-        type: 'special',
-        surahNumber: 18,
-        surahNameArabic: alKahf.nameArabic,
-        surahNameEnglish: alKahf.nameEnglish,
-        pageNumber: page,
-        status: 'special',
-        description: 'Al-Kahf - Friday Sunnah (Reading)',
-      });
-    }
-    
-    console.log('Generated assignments:', assignments.length);
-    res.json({ 
-      alKahfData: alKahf,
-      assignmentsCount: assignments.length,
-      assignments: assignments 
+    res.json({
+      message: 'Al-Kahf test successful',
+      alKahf: alKahf,
+      staticSurahsCount: staticSurahs.length
     });
   } catch (error) {
-    console.error('Test error:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error in Al-Kahf test:', error);
+    res.status(500).json({ message: 'Al-Kahf test failed', error: error.message });
   }
 };
 
