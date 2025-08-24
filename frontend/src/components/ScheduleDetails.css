@@ -1,0 +1,354 @@
+/* ScheduleDetails.css */
+.schedule-details {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.schedule-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.schedule-header h2 {
+  margin: 0 0 10px 0;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.schedule-info {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-success {
+  background-color: #28a745;
+  color: white;
+}
+
+.schedule-table {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  border: 1px solid #e9ecef;
+}
+
+.schedule-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.schedule-table th {
+  background: linear-gradient(135deg, #2980b9 0%, #3498db 100%);
+  color: white;
+  padding: 15px 10px;
+  text-align: center;
+  font-weight: 600;
+  border-right: 1px solid rgba(255,255,255,0.1);
+}
+
+.schedule-table td {
+  padding: 12px 10px;
+  text-align: center;
+  border-bottom: 1px solid #dee2e6;
+  border-right: 1px solid #dee2e6;
+  vertical-align: middle;
+}
+
+.schedule-table tbody tr:hover {
+  background-color: #f8f9fa;
+  transform: scale(1.01);
+  transition: all 0.2s ease;
+}
+
+.type-badge {
+  padding: 6px 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.type-revision {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.type-new {
+  background-color: #e8f5e8;
+  color: #388e3c;
+}
+
+.type-special {
+  background-color: #fff3e0;
+  color: #f57c00;
+}
+
+.status-badge {
+  padding: 6px 12px;
+  border-radius: 15px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-perfect {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-medium {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-not-memorized {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.action-buttons-cell {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.btn-sm:hover {
+  transform: translateY(-1px);
+}
+
+.btn-sm:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.page-selector {
+  position: absolute;
+  z-index: 1000;
+  margin-top: 10px;
+  padding: 15px;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+  min-width: 250px;
+  max-width: 300px;
+}
+
+.page-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+  gap: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+  margin-bottom: 15px;
+  padding: 5px;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+}
+
+.page-checkbox {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  padding: 4px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.page-checkbox:hover {
+  background-color: #f8f9fa;
+}
+
+.page-selector-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.list-view .day-card:not(:last-child) {
+  margin-bottom: 15px;
+}
+
+.day-card {
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 15px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  transition: all 0.3s ease;
+}
+
+.day-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #f8f9fa;
+}
+
+.assignments-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.assignment-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  margin-bottom: 8px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.assignment-item:hover {
+  background-color: #e9ecef;
+  transform: translateX(5px);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .schedule-details {
+    padding: 10px;
+  }
+  
+  .action-buttons {
+    flex-direction: column;
+  }
+  
+  .btn {
+    justify-content: center;
+  }
+  
+  .schedule-table {
+    overflow-x: auto;
+  }
+  
+  .schedule-table table {
+    min-width: 600px;
+  }
+  
+  .schedule-table th,
+  .schedule-table td {
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+  
+  .page-selector {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 90%;
+    max-width: 300px;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .action-buttons {
+    display: none;
+  }
+  
+  .schedule-table {
+    box-shadow: none;
+    border: 1px solid #000;
+  }
+  
+  .schedule-table th {
+    background: #f0f0f0 !important;
+    color: #000 !important;
+  }
+  
+  .btn {
+    display: none;
+  }
+  
+  .page-selector {
+    display: none;
+  }
+}
+
+/* RTL Support */
+[dir="rtl"] .schedule-details {
+  text-align: right;
+}
+
+[dir="rtl"] .action-buttons-cell {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .assignment-item:hover {
+  transform: translateX(-5px);
+}

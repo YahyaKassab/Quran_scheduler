@@ -8,7 +8,8 @@ const CreateSchedule = () => {
     name: '',
     startDate: '',
     totalDays: 30,
-    dailyNewPages: 1
+    dailyNewPages: 1,
+    newDirection: 'forward'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -127,7 +128,23 @@ const CreateSchedule = () => {
                     step="0.5"
                   />
                   <small style={{ color: '#6c757d' }}>
-                    How many new pages to memorize each day?
+                    New pages per day (only applies if you have "not_memorized" pages). Includes complete surah context.
+                  </small>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Direction of New Memorization</label>
+                  <select
+                    name="newDirection"
+                    value={formData.newDirection}
+                    onChange={handleChange}
+                    className="form-control"
+                  >
+                    <option value="forward">من البقرة إلى الناس (Al-Baqarah → An-Nas)</option>
+                    <option value="reverse">من الناس إلى البقرة (An-Nas → Al-Baqarah)</option>
+                  </select>
+                  <small style={{ color: '#6c757d' }}>
+                    اختر اتجاه الحفظ الجديد (Choose the direction of new memorization).
                   </small>
                 </div>
 
@@ -162,11 +179,32 @@ const CreateSchedule = () => {
               <div style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>
                 <h4 style={{ color: '#007bff', marginBottom: '1rem' }}>Schedule Algorithm</h4>
                 <ul style={{ paddingLeft: '1.5rem', marginBottom: '1.5rem' }}>
-                  <li><strong>60%</strong> - Revision of perfectly memorized pages</li>
-                  <li><strong>15%</strong> - Revision of medium-level pages</li>
-                  <li><strong>10-20%</strong> - New memorization material</li>
-                  <li><strong>Special:</strong> Al-Kahf every Friday</li>
+                  <li><strong>60%</strong> - Revision of perfectly memorized pages (prioritized by recency)</li>
+                  <li><strong>15%</strong> - Revision of medium-level pages (prioritized by recency)</li>
+                  <li><strong>New Material:</strong> Pages with "not_memorized" status + surah context (every day except Friday)</li>
+                  <li><strong>Friday Special:</strong> Al-Kahf complete surah reading</li>
                 </ul>
+
+                <h4 style={{ color: '#007bff', marginBottom: '1rem' }}>Intelligent Prioritization</h4>
+                <ul style={{ paddingLeft: '1.5rem', marginBottom: '1.5rem' }}>
+                  <li><strong>🔥 Recent memorization</strong> - Freshly memorized pages get higher priority</li>
+                  <li><strong>📚 Perfect status</strong> - Always highest priority for retention</li>
+                  <li><strong>🎯 Context pages</strong> - Beginning of surahs for complete understanding</li>
+                  <li><strong>📊 Short surah grouping</strong> - Multiple small surahs combined to reach daily targets</li>
+                </ul>
+
+                <h4 style={{ color: '#007bff', marginBottom: '1rem' }}>Smart Context System</h4>
+                <p style={{ marginBottom: '1rem', fontSize: '0.9rem' }}>
+                  <strong>Example:</strong> If you memorized pages 1-10 of a surah, and want 1 new page daily:
+                  <br />
+                  • Day 1: Pages 1-11 (pages 1-10 context + page 11 new)
+                  <br />
+                  • Day 2: Pages 1-12 (pages 1-11 context + page 12 new)
+                  <br />
+                  <strong>Short Surahs:</strong> If a surah is only 0.3 pages, you'll get 3 complete short surahs to fill 1 page.
+                  <br />
+                  <strong>No new material on Fridays</strong> - dedicated to Al-Kahf.
+                </p>
 
                 <h4 style={{ color: '#007bff', marginBottom: '1rem' }}>Requirements</h4>
                 <p style={{ marginBottom: '1rem' }}>

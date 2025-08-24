@@ -9,6 +9,18 @@ const SurahList = () => {
   const [showArabic, setShowArabic] = useState(true);
   const [selectedSurah, setSelectedSurah] = useState(null);
   const [surahPages, setSurahPages] = useState({});
+  
+  // Bulk update state for surahs
+  const [surahRangeFrom, setSurahRangeFrom] = useState('');
+  const [surahRangeTo, setSurahRangeTo] = useState('');
+  const [surahBulkStatus, setSurahBulkStatus] = useState('');
+  const [bulkUpdateLoading, setBulkUpdateLoading] = useState(false);
+  
+  // Bulk update state for pages
+  const [pageRangeFrom, setPageRangeFrom] = useState('');
+  const [pageRangeTo, setPageRangeTo] = useState('');
+  const [pageBulkStatus, setPageBulkStatus] = useState('');
+  const [pageBulkSurah, setPageBulkSurah] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -123,9 +135,148 @@ const SurahList = () => {
       setSelectedSurah(null);
     } else {
       setSelectedSurah(surah);
+      setPageBulkSurah(surah);
       if (!surahPages[surah.number]) {
         loadSurahPages(surah.number);
       }
+    }
+  };
+
+  const handleSurahBulkUpdate = async () => {
+    if (!surahRangeFrom || !surahRangeTo || !surahBulkStatus) {
+      alert('Please select both from/to surahs and a status');
+      return;
+    }
+
+    if (surahRangeFrom > surahRangeTo) {
+      alert('From surah must be less than or equal to To surah');
+      return;
+    }
+
+    try {
+      setBulkUpdateLoading(true);
+      
+      // Build updates array for all pages in the surah range
+      const updates = [];
+      
+      for (let surahNum = surahRangeFrom; surahNum <= surahRangeTo; surahNum++) {
+        const surah = surahs.find(s => s.number === surahNum);
+        if (surah) {
+          for (let page = surah.startPage; page <= surah.endPage; page++) {
+            updates.push({
+              surahNumber: surahNum,
+              pageNumber: page,
+              status: surahBulkStatus
+            });
+          }
+        }
+      }
+
+      await surahAPI.batchUpdateMemorizationStatus(updates);
+      
+      // Update local state
+      const newMemorizationStatus = { ...memorizationStatus };
+      updates.forEach(update => {
+        if (!newMemorizationStatus[update.surahNumber]) {
+          newMemorizationStatus[update.surahNumber] = {};
+        }
+        newMemorizationStatus[update.surahNumber][update.pageNumber] = update.status;
+      });
+      setMemorizationStatus(newMemorizationStatus);
+
+      // Update surah pages if any are currently loaded
+      const newSurahPages = { ...surahPages };
+      for (let surahNum = surahRangeFrom; surahNum <= surahRangeTo; surahNum++) {
+        if (newSurahPages[surahNum]) {
+          newSurahPages[surahNum] = {
+            ...newSurahPages[surahNum],
+            pages: newSurahPages[surahNum].pages.map(page => ({
+              ...page,
+              status: surahBulkStatus,
+              lastUpdated: new Date()
+            }))
+          };
+        }
+      }
+      setSurahPages(newSurahPages);
+
+      // Reset form
+      setSurahRangeFrom('');
+      setSurahRangeTo('');
+      setSurahBulkStatus('');
+      
+      alert(`Successfully updated ${updates.length} pages across ${surahRangeTo - surahRangeFrom + 1} surah(s)`);
+      
+    } catch (error) {
+      console.error('Error updating surah range:', error);
+      alert('Failed to update surah range. Please try again.');
+    } finally {
+      setBulkUpdateLoading(false);
+    }
+  };
+
+  const handlePageBulkUpdate = async () => {
+    if (!pageRangeFrom || !pageRangeTo || !pageBulkStatus || !pageBulkSurah) {
+      alert('Please select page range, status, and ensure a surah is selected');
+      return;
+    }
+
+    if (pageRangeFrom > pageRangeTo) {
+      alert('From page must be less than or equal to To page');
+      return;
+    }
+
+    try {
+      setBulkUpdateLoading(true);
+      
+      const updates = [];
+      for (let page = pageRangeFrom; page <= pageRangeTo; page++) {
+        updates.push({
+          surahNumber: pageBulkSurah.number,
+          pageNumber: page,
+          status: pageBulkStatus
+        });
+      }
+
+      await surahAPI.batchUpdateMemorizationStatus(updates);
+      
+      // Update local state
+      const newMemorizationStatus = { ...memorizationStatus };
+      if (!newMemorizationStatus[pageBulkSurah.number]) {
+        newMemorizationStatus[pageBulkSurah.number] = {};
+      }
+      updates.forEach(update => {
+        newMemorizationStatus[pageBulkSurah.number][update.pageNumber] = update.status;
+      });
+      setMemorizationStatus(newMemorizationStatus);
+
+      // Update surah pages if loaded
+      if (surahPages[pageBulkSurah.number]) {
+        setSurahPages(prev => ({
+          ...prev,
+          [pageBulkSurah.number]: {
+            ...prev[pageBulkSurah.number],
+            pages: prev[pageBulkSurah.number].pages.map(page => 
+              page.pageNumber >= pageRangeFrom && page.pageNumber <= pageRangeTo
+                ? { ...page, status: pageBulkStatus, lastUpdated: new Date() }
+                : page
+            )
+          }
+        }));
+      }
+
+      // Reset form
+      setPageRangeFrom('');
+      setPageRangeTo('');
+      setPageBulkStatus('');
+      
+      alert(`Successfully updated pages ${pageRangeFrom} to ${pageRangeTo} in surah ${pageBulkSurah.number}`);
+      
+    } catch (error) {
+      console.error('Error updating page range:', error);
+      alert('Failed to update page range. Please try again.');
+    } finally {
+      setBulkUpdateLoading(false);
     }
   };
 
@@ -154,6 +305,89 @@ const SurahList = () => {
             />
             Show Arabic Names
           </label>
+        </div>
+
+        {/* Bulk Update for Surahs */}
+        <div style={{ 
+          marginTop: '1.5rem', 
+          padding: '1rem', 
+          background: '#f8f9fa', 
+          borderRadius: '8px',
+          border: '1px solid #dee2e6'
+        }}>
+          <h4 style={{ marginBottom: '1rem' }}>Bulk Update Surahs</h4>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', 
+            gap: '1rem',
+            alignItems: 'end'
+          }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                From Surah:
+              </label>
+              <select 
+                value={surahRangeFrom}
+                onChange={(e) => setSurahRangeFrom(parseInt(e.target.value))}
+                className="form-control"
+              >
+                <option value="">Select...</option>
+                {surahs.map(surah => (
+                  <option key={surah.number} value={surah.number}>
+                    {surah.number}. {showArabic ? surah.nameArabic : surah.nameEnglish}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                To Surah:
+              </label>
+              <select 
+                value={surahRangeTo}
+                onChange={(e) => setSurahRangeTo(parseInt(e.target.value))}
+                className="form-control"
+              >
+                <option value="">Select...</option>
+                {surahs.map(surah => (
+                  <option key={surah.number} value={surah.number}>
+                    {surah.number}. {showArabic ? surah.nameArabic : surah.nameEnglish}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Status:
+              </label>
+              <select 
+                value={surahBulkStatus}
+                onChange={(e) => setSurahBulkStatus(e.target.value)}
+                className="form-control"
+              >
+                <option value="">Select status...</option>
+                <option value="perfect">Perfect</option>
+                <option value="medium">Medium</option>
+                <option value="bad">Needs Review</option>
+                <option value="not_memorized">Not Memorized</option>
+              </select>
+            </div>
+            <div>
+              <button 
+                onClick={handleSurahBulkUpdate}
+                disabled={!surahRangeFrom || !surahRangeTo || !surahBulkStatus || bulkUpdateLoading}
+                className="btn btn-primary"
+                style={{ width: '100%' }}
+              >
+                {bulkUpdateLoading ? 'Updating...' : 'Update Range'}
+              </button>
+            </div>
+          </div>
+          {surahRangeFrom && surahRangeTo && surahRangeFrom <= surahRangeTo && (
+            <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#6c757d' }}>
+              Will update {surahRangeTo - surahRangeFrom + 1} surah(s) and all their pages
+            </div>
+          )}
         </div>
       </div>
 
@@ -210,6 +444,90 @@ const SurahList = () => {
                   {surahPages[surah.number] ? (
                     <div>
                       <h4 style={{ marginBottom: '1rem' }}>Pages</h4>
+                      
+                      {/* Bulk Update for Pages */}
+                      <div style={{ 
+                        marginBottom: '1.5rem', 
+                        padding: '1rem', 
+                        background: '#f1f3f4', 
+                        borderRadius: '8px',
+                        border: '1px solid #dee2e6'
+                      }}>
+                        <h5 style={{ marginBottom: '1rem' }}>Bulk Update Pages</h5>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', 
+                          gap: '1rem',
+                          alignItems: 'end'
+                        }}>
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                              From Page:
+                            </label>
+                            <select 
+                              value={pageRangeFrom}
+                              onChange={(e) => setPageRangeFrom(parseInt(e.target.value))}
+                              className="form-control"
+                            >
+                              <option value="">Select...</option>
+                              {surahPages[surah.number].pages.map(page => (
+                                <option key={page.pageNumber} value={page.pageNumber}>
+                                  {page.pageNumber}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                              To Page:
+                            </label>
+                            <select 
+                              value={pageRangeTo}
+                              onChange={(e) => setPageRangeTo(parseInt(e.target.value))}
+                              className="form-control"
+                            >
+                              <option value="">Select...</option>
+                              {surahPages[surah.number].pages.map(page => (
+                                <option key={page.pageNumber} value={page.pageNumber}>
+                                  {page.pageNumber}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                              Status:
+                            </label>
+                            <select 
+                              value={pageBulkStatus}
+                              onChange={(e) => setPageBulkStatus(e.target.value)}
+                              className="form-control"
+                            >
+                              <option value="">Select status...</option>
+                              <option value="perfect">Perfect</option>
+                              <option value="medium">Medium</option>
+                              <option value="bad">Needs Review</option>
+                              <option value="not_memorized">Not Memorized</option>
+                            </select>
+                          </div>
+                          <div>
+                            <button 
+                              onClick={handlePageBulkUpdate}
+                              disabled={!pageRangeFrom || !pageRangeTo || !pageBulkStatus || bulkUpdateLoading}
+                              className="btn btn-secondary"
+                              style={{ width: '100%' }}
+                            >
+                              {bulkUpdateLoading ? 'Updating...' : 'Update Range'}
+                            </button>
+                          </div>
+                        </div>
+                        {pageRangeFrom && pageRangeTo && pageRangeFrom <= pageRangeTo && (
+                          <div style={{ marginTop: '0.5rem', fontSize: '0.9rem', color: '#6c757d' }}>
+                            Will update {pageRangeTo - pageRangeFrom + 1} page(s)
+                          </div>
+                        )}
+                      </div>
+
                       <div className="pages-grid" style={{ 
                         display: 'grid', 
                         gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', 

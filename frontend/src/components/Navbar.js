@@ -47,6 +47,13 @@ const Navbar = () => {
           >
             Create Schedule
           </Link>
+          <Link 
+            to="/new" 
+            className={`nav-link ${isActive('/new') ? 'active' : ''}`}
+            onClick={() => setIsMenuOpen(false)}
+          >
+            New Material
+          </Link>
         </div>
 
         <div className="nav-toggle" onClick={() => setIsMenuOpen(!isMenuOpen)}>
